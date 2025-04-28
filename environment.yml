@@ -1,0 +1,36 @@
+name: aiml25-ma3
+channels:
+  - conda-forge
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python=3.11
+  - ipykernel
+  - ipython
+  - ipywidgets
+  - jupyter
+  - langchain-community
+  - markdown
+  - markupsafe
+  - matplotlib
+  - nbclient
+  - nbformat
+  - pip
+  - pre-commit
+  - python-decouple
+  - scikit-learn
+  - tqdm
+  - pip:
+      - chromadb
+      - duckduckgo-search
+      - ibm-watsonx-ai
+      - instructor
+      - langchain
+      - langchain-chroma
+      - langchain-core
+      - langchain-ibm
+      - langchain-text-splitters
+      - langgraph
+      - litellm
+      - pandas
+      - requests
