@@ -7,10 +7,10 @@ load_dotenv()
 
 import time
 import chatbot_utils as chatbot_utils
-import common.openai_tools.hni_hotel_room_lookup as hotel_room_lookup_tool
-import common.openai_tools.hni_ice_cream_sales_prediction_tool as ice_cream_sales_prediction_tool
-import common.openai_tools.hni_text_upload_tool as text_upload_tool
-import common.openai_tools.hni_weather_forecast_tool as weather_forecast_tool
+# import common.openai_tools.hni_hotel_room_lookup as hotel_room_lookup_tool
+# import common.openai_tools.hni_ice_cream_sales_prediction_tool as ice_cream_sales_prediction_tool
+# import common.openai_tools.hni_text_upload_tool as text_upload_tool
+# import common.openai_tools.hni_weather_forecast_tool as weather_forecast_tool
 import gradio as gr
 import pandas as pd
 import tiktoken
