@@ -9,3 +9,8 @@ requests==2.32.3
 six==1.17.0
 urllib3==2.4.0
 websocket-client==1.8.0
+cryptography>=3.1
+pypdf
+langchain-community
+langchain-ibm
+langchain-chroma

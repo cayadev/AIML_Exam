@@ -1,4 +1,4 @@
-name: aiml25-ma3
+name: aiml25-exam
 channels:
   - conda-forge
   - https://repo.anaconda.com/pkgs/main
@@ -30,7 +30,9 @@ dependencies:
       - langchain-core
       - langchain-ibm
       - langchain-text-splitters
+      - langchain-community
       - langgraph
       - litellm
       - pandas
       - requests
+      - decouple
