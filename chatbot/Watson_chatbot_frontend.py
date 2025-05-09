@@ -1,7 +1,7 @@
 from Watson_chatbot_backend import ask_watson
 
 # Basic usage
-response = ask_watson("What are the growing conditions for cotton?")
+#response = ask_watson("What are the growing conditions for cotton?")
 
 # Customized usage
 response = ask_watson(
@@ -10,3 +10,5 @@ response = ask_watson(
     use_csv=True,                          # Use CSV data
     use_pdf=True                           # Use PDF data
 )
+
+print(response)
