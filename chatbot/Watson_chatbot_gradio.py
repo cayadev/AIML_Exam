@@ -1,5 +1,13 @@
 import gradio as gr
-from Watson_chatbot_backend import ask_watson, get_available_models
+from Watson_chatbot_backend import ask_watson, get_available_models, generate_pdf_content
+import tempfile
+import os
+import re
+from bs4 import BeautifulSoup
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListItem, ListFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
 
 def chat_interface(message, model, use_csv, use_pdf):
     try:
@@ -9,9 +17,87 @@ def chat_interface(message, model, use_csv, use_pdf):
             use_csv=use_csv,
             use_pdf=use_pdf
         )
-        return response
+        
+        # Check if this is a formatted list response
+        if "<FORMATTED_LIST>" in response and "</FORMATTED_LIST>" in response:
+            # Remove the formatting tags for display
+            clean_response = response.replace("<FORMATTED_LIST>", "").replace("</FORMATTED_LIST>", "")
+            return clean_response, True
+        else:
+            return response, False
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e}", False
+
+def create_pdf(response):
+    """Create a PDF file from the response and return the path to the file."""
+    try:
+        # Generate HTML content
+        html_content = generate_pdf_content(response)
+        
+        # Create a temporary file
+        temp_dir = tempfile.gettempdir()
+        pdf_path = os.path.join(temp_dir, "watson_response.pdf")
+        
+        # Create PDF using ReportLab (which handles Unicode properly)
+        doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+        styles = getSampleStyleSheet()
+        
+        # Create custom styles
+        title_style = ParagraphStyle(
+            'TitleStyle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=12
+        )
+        
+        normal_style = styles['Normal']
+        
+        # Create a list style
+        list_item_style = ParagraphStyle(
+            'ListItemStyle',
+            parent=normal_style,
+            leftIndent=20,
+            firstLineIndent=0
+        )
+        
+        list_bullet_style = ParagraphStyle(
+            'ListBulletStyle',
+            parent=normal_style,
+            leftIndent=30,
+            firstLineIndent=0
+        )
+        
+        # Parse HTML content
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Build the PDF content
+        elements = []
+        
+        for element in soup.find_all(['h1', 'p', 'ol', 'li']):
+            if element.name == 'h1':
+                elements.append(Paragraph(element.text, title_style))
+                elements.append(Spacer(1, 12))
+            elif element.name == 'p':
+                elements.append(Paragraph(element.text, normal_style))
+                elements.append(Spacer(1, 6))
+            elif element.name == 'li':
+                # Check if there's a strong tag for the title
+                strong_tag = element.find('strong')
+                if strong_tag:
+                    title = strong_tag.text
+                    description = element.text.replace(title, '', 1).strip()
+                    elements.append(Paragraph(f"<b>{title}</b>", list_item_style))
+                    elements.append(Paragraph(description, list_bullet_style))
+                else:
+                    elements.append(Paragraph(element.text, list_item_style))
+                elements.append(Spacer(1, 3))
+        
+        # Build the PDF
+        doc.build(elements)
+        return pdf_path
+    except Exception as e:
+        print(f"Error creating PDF: {e}")
+        return None
 
 # List of available models
 models = get_available_models()
@@ -31,12 +117,42 @@ with gr.Blocks() as demo:
 
     with gr.Row():
         submit_button = gr.Button("Ask Watson")
-        response_output = gr.Textbox(label="Watson's Response", lines=10)
+    
+    # Output components
+    response_output = gr.Textbox(label="Watson's Response", lines=10)
+    is_list_state = gr.State(False)
+    
+    # PDF download button (initially hidden)
+    with gr.Row(visible=False) as pdf_row:
+        download_button = gr.Button("Download as PDF")
+        pdf_output = gr.File(label="Download PDF")
+    
+    # Function to update UI based on response type
+    def update_ui(response, is_list):
+        return response, is_list, gr.update(visible=is_list)
+    
+    # Function to generate PDF when button is clicked
+    def on_download_click(response):
+        pdf_path = create_pdf(response)
+        if pdf_path:
+            return pdf_path
+        return None
 
+    # Connect components
     submit_button.click(
         fn=chat_interface,
         inputs=[message_input, model_selector, use_csv_checkbox, use_pdf_checkbox],
-        outputs=response_output
+        outputs=[response_output, is_list_state]
+    ).then(
+        fn=update_ui,
+        inputs=[response_output, is_list_state],
+        outputs=[response_output, is_list_state, pdf_row]
+    )
+    
+    download_button.click(
+        fn=on_download_click,
+        inputs=[response_output],
+        outputs=[pdf_output]
     )
 
 if __name__ == "__main__":

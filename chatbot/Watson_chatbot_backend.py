@@ -11,6 +11,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ibm import WatsonxEmbeddings
 from langchain_chroma import Chroma
 from typing import Optional, Dict, Any, List, Tuple
+import re
 
 # Global variables to store initialized components
 llm_models = {}
@@ -145,14 +146,20 @@ def ask_watson(
     """
     global llm_models, vector_db, crop_descriptions
     
-    # Initialize if not already done
-    if model_id not in llm_models or (use_pdf and vector_db is None) or (use_csv and crop_descriptions is None):
+    # Initialize Watson components if not already done
+    if model_id not in llm_models or vector_db is None or crop_descriptions is None:
         llm, vector_db, crop_descriptions = initialize_watson(model_id)
     else:
         llm = llm_models[model_id]
     
-    # Check if the question is about crops or farming
-    crop_keywords = ["crop", "farm", "soil", "weather", "agriculture", "plant", "harvest", 
+    # Check if the question is about priority lists, action plans, or to-dos
+    list_keywords = ["priority list", "priorities", "action plan", "to-do", "todo", "to do", 
+                     "task list", "checklist", "steps", "action items", "roadmap", "milestones"]
+    
+    is_list_request = any(keyword.lower() in message.lower() for keyword in list_keywords)
+    
+    # Keywords for crop-related questions
+    crop_keywords = ["crop", "farm", "agriculture", "soil", "plant", "harvest", "grow", 
                     "disease", "yield", "moisture", "pH", "temperature", "rainfall", 
                     "humidity", "irrigation", "fertilizer", "pesticide", "cotton", "wheat",
                     "rice", "maize", "soybean"]
@@ -191,19 +198,50 @@ Crop Condition Descriptions:
 Retrieved Documents:
 {docs_content}"""
             
-            prompt += f"""
+            # Add special formatting instructions for list-type requests
+            if is_list_request:
+                prompt += f"""
+
+Question: {message}
+
+IMPORTANT: Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
+1. Start with a brief introduction
+2. Present the items as a numbered list with clear titles for each item
+3. For each item, provide a short description or explanation
+4. End with a brief conclusion
+
+Answer:"""
+            else:
+                prompt += f"""
 
 Question: {message}
 
 Answer:"""
             
             # Get response from LLM
-            return llm.invoke(prompt)
+            response = llm.invoke(prompt)
+            
+            # If this was a list request, ensure proper formatting
+            if is_list_request:
+                response = format_list_response(response)
+                
+            return response
         
         # Fall back to using crop descriptions if no relevant documents found or not using PDFs
         elif use_csv and crop_descriptions:
             prompt = f"""You are an agricultural assistant that helps farmers with crop conditions information.
-Use the following crop condition descriptions to answer the question. If you don't know the answer or the information is not in the descriptions, just say so.
+Use the following crop condition descriptions to answer the question. If you don't know the answer or the information is not in the descriptions, just say so."""
+
+            if is_list_request:
+                prompt += f"""
+
+Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
+1. Start with a brief introduction
+2. Present the items as a numbered list with clear titles for each item
+3. For each item, provide a short description or explanation
+4. End with a brief conclusion"""
+
+            prompt += f"""
 
 Crop Condition Descriptions:
 {chr(10).join(crop_descriptions)}
@@ -213,13 +251,79 @@ Question: {message}
 Answer:"""
             
             # Get response from LLM
-            return llm.invoke(prompt)
+            response = llm.invoke(prompt)
+            
+            # If this was a list request, ensure proper formatting
+            if is_list_request:
+                response = format_list_response(response)
+                
+            return response
         else:
             # No data sources available, use the LLM directly
-            return llm.invoke(f"You are an agricultural assistant. Answer this question: {message}")
+            if is_list_request:
+                prompt = f"""You are an agricultural assistant. Answer this question: {message}
+
+Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
+1. Start with a brief introduction
+2. Present the items as a numbered list with clear titles for each item
+3. For each item, provide a short description or explanation
+4. End with a brief conclusion"""
+                
+                response = llm.invoke(prompt)
+                response = format_list_response(response)
+                return response
+            else:
+                return llm.invoke(f"You are an agricultural assistant. Answer this question: {message}")
     else:
-        # For non-crop questions, use the LLM directly
-        return llm.invoke(message)
+        # For non-crop questions
+        if is_list_request:
+            prompt = f"""Answer this question: {message}
+
+Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
+1. Start with a brief introduction
+2. Present the items as a numbered list with clear titles for each item
+3. For each item, provide a short description or explanation
+4. End with a brief conclusion"""
+            
+            response = llm.invoke(prompt)
+            response = format_list_response(response)
+            return response
+        else:
+            # For regular questions, use the LLM directly
+            return llm.invoke(message)
+
+def format_list_response(response: str) -> str:
+    """Format a list-type response to ensure consistent structure.
+    
+    Args:
+        response: The raw response from the LLM
+        
+    Returns:
+        str: Formatted response with consistent structure
+    """
+    # Check if the response already has numbered items
+    has_numbered_items = bool(re.search(r'^\s*\d+\.', response, re.MULTILINE))
+    
+    if not has_numbered_items:
+        # Try to identify list items and format them
+        lines = response.split('\n')
+        formatted_lines = []
+        item_number = 1
+        
+        for line in lines:
+            # Look for potential list items (lines with keywords or bullet points)
+            if re.match(r'^\s*[-•*]\s+', line) or any(keyword in line.lower() for keyword in ['step', 'task', 'action', 'priority']):
+                # Replace bullet with number
+                line = re.sub(r'^\s*[-•*]\s+', f"{item_number}. ", line)
+                if not re.match(r'^\d+\.', line):
+                    line = f"{item_number}. {line}"
+                item_number += 1
+            formatted_lines.append(line)
+        
+        response = '\n'.join(formatted_lines)
+    
+    # Add a special marker to indicate this is a formatted list
+    return f"<FORMATTED_LIST>\n{response}\n</FORMATTED_LIST>"
 
 def get_available_models() -> List[str]:
     """Return a list of available Watson models that can be used.
@@ -230,27 +334,78 @@ def get_available_models() -> List[str]:
     # This is a simplified list - in a real application, you might query the Watson API
     return [
         "ibm/granite-3-8b-instruct",
-        "ibm/granite-13b-instruct",
-        "ibm/granite-20b-instruct"
+        "meta-llama/llama-3-3-70b-instruct",
+        "mistralai/mistral-large"
     ]
+
+def generate_pdf_content(response: str) -> str:
+    """Generate formatted content for PDF export.
+    
+    Args:
+        response: The response from the LLM
+        
+    Returns:
+        str: HTML-formatted content for PDF export
+    """
+    # Check if this is a formatted list response
+    if "<FORMATTED_LIST>" in response and "</FORMATTED_LIST>" in response:
+        # Extract the content between the tags
+        content = response.split("<FORMATTED_LIST>")[1].split("</FORMATTED_LIST>")[0].strip()
+        
+        # Convert the content to HTML format
+        lines = content.split('\n')
+        html_content = "<h1>Generated Action Plan</h1>\n"
+        
+        in_list = False
+        for line in lines:
+            # Check if this line is a numbered item
+            if re.match(r'^\s*\d+\.', line):
+                if not in_list:
+                    html_content += "<ol>\n"
+                    in_list = True
+                # Extract the item title if it exists (e.g., "1. Title: Description" -> "Title")
+                title_match = re.match(r'^\s*\d+\.\s*([^:]+):(.*)', line)
+                if title_match:
+                    title, description = title_match.groups()
+                    html_content += f"<li><strong>{title.strip()}</strong>{description}</li>\n"
+                else:
+                    html_content += f"<li>{line.split('.', 1)[1].strip()}</li>\n"
+            else:
+                if in_list:
+                    html_content += "</ol>\n"
+                    in_list = False
+                html_content += f"<p>{line}</p>\n"
+        
+        if in_list:
+            html_content += "</ol>\n"
+        
+        return html_content
+    else:
+        # For non-list responses, just wrap in paragraphs
+        paragraphs = response.split('\n\n')
+        html_content = "<h1>Generated Content</h1>\n"
+        for para in paragraphs:
+            if para.strip():
+                html_content += f"<p>{para}</p>\n"
+        return html_content
 
 if __name__ == "__main__":
     # Initialize Watson components when run directly
     llm, vector_db, crop_descriptions = initialize_watson()
     
-    # Test with different configurations
-    print("Using both CSV and PDF data:")
-    print(ask_watson("What are the soil conditions for wheat crops in North India?", 
-                    use_csv=True, use_pdf=True))
+    # # Test with different configurations
+    # print("Using both CSV and PDF data:")
+    # print(ask_watson("What are the soil conditions for wheat crops in North India?", 
+    #                 use_csv=True, use_pdf=True))
     
-    print("\nUsing only CSV data:")
-    print(ask_watson("What are the soil conditions for cotton crops?", 
-                    use_csv=True, use_pdf=False))
+    # print("\nUsing only CSV data:")
+    # print(ask_watson("What are the soil conditions for cotton crops?", 
+    #                 use_csv=True, use_pdf=False))
     
-    print("\nUsing only PDF data:")
-    print(ask_watson("Tell me about soybean farming.", 
-                    use_csv=False, use_pdf=True))
+    # print("\nUsing only PDF data:")
+    # print(ask_watson("Tell me about soybean farming.", 
+    #                 use_csv=False, use_pdf=True))
     
-    print("\nUsing no additional data:")
-    print(ask_watson("Hello Watson, how are you today?", 
-                    use_csv=False, use_pdf=False))
+    # print("\nUsing no additional data:")
+    # print(ask_watson("Hello Watson, how are you today?", 
+    #                 use_csv=False, use_pdf=False))

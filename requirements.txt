@@ -14,3 +14,4 @@ pypdf
 langchain-community
 langchain-ibm
 langchain-chroma
+gradio

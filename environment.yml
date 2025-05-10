@@ -36,3 +36,4 @@ dependencies:
       - pandas
       - requests
       - decouple
+      - gradio
