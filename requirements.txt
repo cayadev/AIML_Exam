@@ -1,17 +1,26 @@
-certifi==2025.4.26
-charset-normalizer==3.4.2
-ibm-cloud-sdk-core==3.23.0
-ibm-watson==9.0.0
-idna==3.10
-PyJWT==2.10.1
-python-dateutil==2.9.0.post0
-requests==2.32.3
-six==1.17.0
-urllib3==2.4.0
-websocket-client==1.8.0
-cryptography>=3.1
-pypdf
-langchain-community
-langchain-ibm
-langchain-chroma
+# Watson API and LangChain Integration
+langchain_ibm
+ibm_watsonx_ai
+langchain_community
+langchain_text_splitters
+langchain_chroma
+
+# Data Processing
+pandas
+numpy
+
+# Web UI
 gradio
+
+# PDF Generation
+reportlab
+beautifulsoup4
+
+# Vector Database
+chromadb
+
+# Utilities
+typing
+re
+tempfile
+time

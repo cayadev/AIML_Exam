@@ -62,17 +62,19 @@ def initialize_watson(model_id: str = "ibm/granite-3-8b-instruct"):
             project_id=WX_PROJECT_ID
         )
         
-        # Define path to data
-        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Define paths to data
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up one level to project root
         
         # Initialize vector database
-        pdf_data_path = os.path.join(current_dir, "data")
-        vector_db = initialize_vector_db(pdf_data_path, embeddings, current_dir)
+        pdf_data_path = os.path.join(project_root, "data")
+        vector_db = initialize_vector_db(pdf_data_path, embeddings, project_root)
     
     # Load crop descriptions if not already done
     if crop_descriptions is None:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        data_path = os.path.join(current_dir, "data", "Crop_Conditions_Dataset.csv")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)  # Go up one level to project root
+        data_path = os.path.join(project_root, "data", "Crop_Conditions_Dataset.csv")
         crop_descriptions = load_crop_data(data_path)
     
     return llm, vector_db, crop_descriptions
@@ -345,20 +347,3 @@ def generate_pdf_content(response: str) -> str:
 if __name__ == "__main__":
     # Initialize Watson components when run directly
     llm, vector_db, crop_descriptions = initialize_watson()
-    
-    # # Test with different configurations
-    # print("Using both CSV and PDF data:")
-    # print(ask_watson("What are the soil conditions for wheat crops in North India?", 
-    #                 use_csv=True, use_pdf=True))
-    
-    # print("\nUsing only CSV data:")
-    # print(ask_watson("What are the soil conditions for cotton crops?", 
-    #                 use_csv=True, use_pdf=False))
-    
-    # print("\nUsing only PDF data:")
-    # print(ask_watson("Tell me about soybean farming.", 
-    #                 use_csv=False, use_pdf=True))
-    
-    # print("\nUsing no additional data:")
-    # print(ask_watson("Hello Watson, how are you today?", 
-    #                 use_csv=False, use_pdf=False))

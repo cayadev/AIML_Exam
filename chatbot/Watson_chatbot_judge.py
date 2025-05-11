@@ -186,20 +186,5 @@ def format_judge_result(judge_result: Dict[str, Any]) -> str:
     return formatted_result
 
 if __name__ == "__main__":
-    # Test the judge functionality
-    test_query = "What are the best soil conditions for growing wheat?"
-    test_response = """
-    Wheat grows best in well-drained loamy soils with a pH between 6.0 and 7.0. 
-    The soil should have good water-holding capacity but not be waterlogged. 
-    Wheat requires moderate to high levels of nitrogen, phosphorus, and potassium.
-    Sandy soils may require more frequent irrigation and fertilization.
-    Clay soils may need better drainage to prevent root diseases.
-    """
-    
-    # Test with the Watson model
-    result = judge_response(test_query, test_response)
-    
-    if result["success"]:
-        print(format_judge_result(result))
-    else:
-        print("Judge evaluation failed:", result["raw_evaluation"])
+    # Initialize the judge model when run directly
+    initialize_watson_judge()
