@@ -1,16 +1,22 @@
 import gradio as gr
 from Watson_chatbot_backend import ask_watson, get_available_models, generate_pdf_content
+from Watson_chatbot_judge import judge_response, format_judge_result
 import tempfile
 import os
 import re
+import time
 from bs4 import BeautifulSoup
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListItem, ListFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT
 
-def chat_interface(message, model, use_csv, use_pdf):
+def chat_interface(message, model, use_csv, use_pdf, use_judge):
     try:
+        # Start timing the response
+        start_time = time.time()
+        
+        # Get response from Watson
         response = ask_watson(
             message=message,
             model_id=model,
@@ -18,15 +24,41 @@ def chat_interface(message, model, use_csv, use_pdf):
             use_pdf=use_pdf
         )
         
+        # Calculate response time
+        response_time = time.time() - start_time
+        
         # Check if this is a formatted list response
         if "<FORMATTED_LIST>" in response and "</FORMATTED_LIST>" in response:
             # Remove the formatting tags for display
             clean_response = response.replace("<FORMATTED_LIST>", "").replace("</FORMATTED_LIST>", "")
-            return clean_response, True
+            is_list = True
         else:
-            return response, False
+            clean_response = response
+            is_list = False
+        
+        # Get judge evaluation if requested
+        judge_evaluation = ""
+        if use_judge:
+            try:
+                # Call the judge function
+                judge_result = judge_response(message, clean_response)
+                if judge_result["success"]:
+                    judge_evaluation = format_judge_result(judge_result)
+                else:
+                    judge_evaluation = "⚠️ Judge evaluation failed. Please check the model configuration."
+            except Exception as e:
+                judge_evaluation = f"⚠️ Judge evaluation error: {str(e)}"
+        
+        # Add response time to judge evaluation or create a new message if no judge
+        latency_info = f"\n\n⏱️ **Response Time**: {response_time:.2f} seconds"
+        if judge_evaluation:
+            judge_evaluation += latency_info
+        else:
+            judge_evaluation = latency_info.strip()
+        
+        return clean_response, is_list, judge_evaluation
     except Exception as e:
-        return f"Error: {e}", False
+        return f"Error: {e}", False, ""
 
 def create_pdf(response):
     """Create a PDF file from the response and return the path to the file."""
@@ -103,33 +135,54 @@ def create_pdf(response):
 models = get_available_models()
 
 with gr.Blocks() as demo:
-    gr.Markdown("## 🌾 Watson Agricultural Chatbot")
+    gr.Markdown("## 🌾 FarmWise - Your Agricultural Chatbot")
 
     with gr.Row():
-        message_input = gr.Textbox(label="Enter your question", placeholder="Ask about crop conditions, farming, etc.")
+        # Left panel - Model selection and options
+        with gr.Column(scale=1):
+            gr.Markdown("### Model & Settings")
+            model_selector = gr.Dropdown(
+                label="Select Model", 
+                choices=models, 
+                value=models[0]
+            )
+            
+            use_csv_checkbox = gr.Checkbox(label="Use CSV Crop Descriptions", value=True)
+            use_pdf_checkbox = gr.Checkbox(label="Use PDF Documents", value=True)
+            use_judge_checkbox = gr.Checkbox(label="Enable Judge Evaluation", value=True)
+            
+            # Judge evaluation output under the checkboxes
+            judge_output = gr.Markdown(label="Evaluation", visible=True)
+            
+            # PDF download button (initially hidden)
+            with gr.Row(visible=False) as pdf_row:
+                download_button = gr.Button("Download as PDF")
+                pdf_output = gr.File(label="Download PDF")
+        
+        # Right panel - Question and response
+        with gr.Column(scale=2):
+            gr.Markdown("### Ask Your Question")
+            message_input = gr.Textbox(
+                label="", 
+                placeholder="Ask about crop conditions, farming, etc.",
+                lines=3
+            )
+            submit_button = gr.Button("Ask FarmWise", variant="primary")
+            
+            gr.Markdown("### FarmWise's Response")
+            response_output = gr.Textbox(label="", lines=20)
     
-    with gr.Row():
-        model_selector = gr.Dropdown(label="Select Watson Model", choices=models, value=models[0])
-    
-    with gr.Row():
-        use_csv_checkbox = gr.Checkbox(label="Use CSV Crop Descriptions", value=True)
-        use_pdf_checkbox = gr.Checkbox(label="Use PDF Documents", value=True)
-
-    with gr.Row():
-        submit_button = gr.Button("Ask Watson")
-    
-    # Output components
-    response_output = gr.Textbox(label="Watson's Response", lines=10)
+    # Hidden state
     is_list_state = gr.State(False)
     
-    # PDF download button (initially hidden)
-    with gr.Row(visible=False) as pdf_row:
-        download_button = gr.Button("Download as PDF")
-        pdf_output = gr.File(label="Download PDF")
-    
     # Function to update UI based on response type
-    def update_ui(response, is_list):
-        return response, is_list, gr.update(visible=is_list)
+    def update_ui(response, is_list, judge_evaluation):
+        return (
+            response, 
+            is_list, 
+            gr.update(visible=is_list),
+            gr.update(value=judge_evaluation, visible=True)
+        )
     
     # Function to generate PDF when button is clicked
     def on_download_click(response):
@@ -141,12 +194,12 @@ with gr.Blocks() as demo:
     # Connect components
     submit_button.click(
         fn=chat_interface,
-        inputs=[message_input, model_selector, use_csv_checkbox, use_pdf_checkbox],
-        outputs=[response_output, is_list_state]
+        inputs=[message_input, model_selector, use_csv_checkbox, use_pdf_checkbox, use_judge_checkbox],
+        outputs=[response_output, is_list_state, judge_output]
     ).then(
         fn=update_ui,
-        inputs=[response_output, is_list_state],
-        outputs=[response_output, is_list_state, pdf_row]
+        inputs=[response_output, is_list_state, judge_output],
+        outputs=[response_output, is_list_state, pdf_row, judge_output]
     )
     
     download_button.click(

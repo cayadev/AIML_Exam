@@ -45,7 +45,7 @@ def initialize_watson(model_id: str = "ibm/granite-3-8b-instruct"):
                 GenParams.DECODING_METHOD: "greedy",
                 GenParams.TEMPERATURE: 0.4,
                 GenParams.MIN_NEW_TOKENS: 5,
-                GenParams.MAX_NEW_TOKENS: 1000,
+                GenParams.MAX_NEW_TOKENS: 2500,  # Increased from 1000 to 2500 for longer responses
                 GenParams.REPETITION_PENALTY: 1.2,
             }
         )
@@ -152,6 +152,17 @@ def ask_watson(
     else:
         llm = llm_models[model_id]
     
+    # Define base prompt
+    base_prompt = "You are an agricultural assistant that helps farmers with crop conditions information."
+    
+    # Define list formatting instructions to avoid repetition
+    list_format_instructions = """
+Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
+1. Start with a brief introduction
+2. Present the items as a numbered list with clear titles for each item
+3. For each item, provide a short description or explanation
+4. End with a brief conclusion"""
+    
     # Check if the question is about priority lists, action plans, or to-dos
     list_keywords = ["priority list", "priorities", "action plan", "to-do", "todo", "to do", 
                      "task list", "checklist", "steps", "action items", "roadmap", "milestones"]
@@ -165,6 +176,9 @@ def ask_watson(
                     "rice", "maize", "soybean"]
     
     is_crop_question = any(keyword.lower() in message.lower() for keyword in crop_keywords)
+    
+    # Build the prompt based on the type of question
+    prompt = base_prompt
     
     # First check if this is a question that might benefit from RAG with PDF documents
     if is_crop_question:
@@ -180,12 +194,12 @@ def ask_watson(
             docs_content = "\n\n".join(f"Document {i+1} (from {doc.metadata.get('source', 'unknown')}): \n{doc.page_content}" 
                                     for i, doc in enumerate(retrieved_docs))
             
-            # Create a prompt with retrieved documents as context
-            prompt = f"""You are an agricultural assistant that helps farmers with crop conditions information.
-Use the following information from agricultural documents to answer the question."""
+            # Add context to the prompt
+            prompt += "\nUse the following information from agricultural documents to answer the question."
 
             if use_csv and crop_descriptions:
-                prompt += f"""If you don't know the answer or the information is not in the documents, use the crop condition descriptions provided.
+                prompt += f"""
+If you don't know the answer or the information is not in the documents, use the crop condition descriptions provided.
 
 Retrieved Documents:
 {docs_content}
@@ -197,100 +211,39 @@ Crop Condition Descriptions:
 
 Retrieved Documents:
 {docs_content}"""
-            
-            # Add special formatting instructions for list-type requests
-            if is_list_request:
-                prompt += f"""
-
-Question: {message}
-
-IMPORTANT: Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
-1. Start with a brief introduction
-2. Present the items as a numbered list with clear titles for each item
-3. For each item, provide a short description or explanation
-4. End with a brief conclusion
-
-Answer:"""
-            else:
-                prompt += f"""
-
-Question: {message}
-
-Answer:"""
-            
-            # Get response from LLM
-            response = llm.invoke(prompt)
-            
-            # If this was a list request, ensure proper formatting
-            if is_list_request:
-                response = format_list_response(response)
-                
-            return response
         
         # Fall back to using crop descriptions if no relevant documents found or not using PDFs
         elif use_csv and crop_descriptions:
-            prompt = f"""You are an agricultural assistant that helps farmers with crop conditions information.
-Use the following crop condition descriptions to answer the question. If you don't know the answer or the information is not in the descriptions, just say so."""
-
-            if is_list_request:
-                prompt += f"""
-
-Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
-1. Start with a brief introduction
-2. Present the items as a numbered list with clear titles for each item
-3. For each item, provide a short description or explanation
-4. End with a brief conclusion"""
-
             prompt += f"""
+Use the following crop condition descriptions to answer the question. If you don't know the answer or the information is not in the descriptions, just say so.
 
 Crop Condition Descriptions:
-{chr(10).join(crop_descriptions)}
+{chr(10).join(crop_descriptions)}"""
+    else:
+        # For non-crop questions, use a simpler prompt
+        prompt = "Answer this question:"
+    
+    # Add list formatting instructions if this is a list request
+    if is_list_request:
+        prompt += f"""
+
+{list_format_instructions}"""
+    
+    # Add the user's question to the prompt
+    prompt += f"""
 
 Question: {message}
 
 Answer:"""
-            
-            # Get response from LLM
-            response = llm.invoke(prompt)
-            
-            # If this was a list request, ensure proper formatting
-            if is_list_request:
-                response = format_list_response(response)
-                
-            return response
-        else:
-            # No data sources available, use the LLM directly
-            if is_list_request:
-                prompt = f"""You are an agricultural assistant. Answer this question: {message}
-
-Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
-1. Start with a brief introduction
-2. Present the items as a numbered list with clear titles for each item
-3. For each item, provide a short description or explanation
-4. End with a brief conclusion"""
-                
-                response = llm.invoke(prompt)
-                response = format_list_response(response)
-                return response
-            else:
-                return llm.invoke(f"You are an agricultural assistant. Answer this question: {message}")
-    else:
-        # For non-crop questions
-        if is_list_request:
-            prompt = f"""Answer this question: {message}
-
-Since this is a request for a priority list, action plan, or to-do list, format your response in a clear, structured way:
-1. Start with a brief introduction
-2. Present the items as a numbered list with clear titles for each item
-3. For each item, provide a short description or explanation
-4. End with a brief conclusion"""
-            
-            response = llm.invoke(prompt)
-            response = format_list_response(response)
-            return response
-        else:
-            # For regular questions, use the LLM directly
-            return llm.invoke(message)
+    
+    # Get response from LLM
+    response = llm.invoke(prompt)
+    
+    # If this was a list request, ensure proper formatting
+    if is_list_request:
+        response = format_list_response(response)
+        
+    return response
 
 def format_list_response(response: str) -> str:
     """Format a list-type response to ensure consistent structure.
